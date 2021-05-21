@@ -1,0 +1,104 @@
+####算日本规范#####
+#2.0用于计算可靠度
+import numpy as np
+from scipy import stats
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+import math
+import openpyxl as op
+
+rng=np.random.default_rng()#构造一个默认位生成器（PCG64）
+Size=10000000
+#材料参数输入
+##设计值
+f01=[14.3,19.1,23.1]
+f01=np.array(f01)/0.95/0.96
+f02=[14.3,19.1,23.1]
+f02=np.array(f02)/0.95/0.96
+fck=[20.1,26.8,32.4]#C30,C40,C50
+fck=np.array(fck)/0.95/0.96
+c1=2#外围混凝土型号控制参数
+c2=2#核心区混凝土型号控制参数
+fys=[215,310]
+fyl=[215,310]
+fysK=[235,345]
+fylK=[235,345]
+s1=0#钢管强度控制参数
+s2=0#纵筋强度控制参数
+pi=3.1415926
+B=200
+D=127
+t=1.5###1.5,2,3,4,记得改下面
+d=D-2*t
+m=4
+dl=10
+Ayl=m*pi*dl**2/4
+Arc=B**2-pi*D**2/4#此处还包含钢筋面积
+Acore=pi*d**2/4
+Ays=pi*D**2/4-Acore
+
+Nall=0.85*f01[c1]*Arc+fyl[s2]*Ayl+0.85*f02[c2]*Acore+(1+0.27)*fys[s1]*Ays#Arc未减去钢筋
+#print(Nall)
+##承载力设计值计算完毕——————————————————————
+##
+muc=[1.41,1.35,1.32]
+detac=[0.19,0.16,0.135]
+mus=[1.08,1.09]
+detas=[0.08,0.07]
+##
+muq=[0.7,0.859,0.999]
+detaq=[0.29,0.233,0.193]
+q1=0#0，1，2分别为恒+办，恒+住，恒+风
+##计算模式不定性参数
+sigmakp=math.sqrt(math.log(1+0.054**2))     
+mukp=math.log(0.852)-0.5*sigmakp**2
+#荷载效应比rho=活载/恒载
+list1=np.arange(0,3.2,0.2)
+beta=[]
+for rho in list1:
+    G0=Nall/(1.3+1.5*rho)
+    Q0=G0*rho
+###进行失效概率计算
+    f01k=rng.normal(loc=muc[c1]*fck[c1],scale=detac[c1]*muc[c1]*fck[c1],size=Size)#外部素混凝土的峰值应力
+    f02k=rng.normal(loc=muc[c2]*fck[c2],scale=detac[c2]*muc[c2]*fck[c2],size=Size)#rng.normal()#核心数混凝土的峰值应力
+    fysk=rng.normal(loc=mus[s1]*fysK[s1],scale=detas[s1]*mus[s1]*fysK[s1],size=Size)
+    fylk=rng.normal(loc=mus[s2]*fylK[s2],scale=detas[s2]*mus[s2]*fylK[s2],size=Size)
+    t=rng.normal(loc=1.5,scale=0.05*1.5,size=Size)
+    D=rng.normal(loc=127,scale=0.05*127,size=Size)
+    d=D-2*t
+    B=rng.normal(loc=200,scale=0.05*200,size=Size)
+    dl=rng.normal(loc=10,scale=0.05*10,size=Size) #纵筋直径
+    #承载力计算公式---------
+    ##面积计算
+    Ayl=m*pi*dl**2/4
+    Arc=B**2-pi*D**2/4
+    Acore=pi*d**2/4
+    Ays=pi*D**2/4-Acore
+    ##计算模式不确定
+    kp=rng.lognormal(mean=mukp, sigma=sigmakp, size=Size)
+    Nallk=kp*(0.85*f01k*Arc+fylk*Ayl+0.85*f02k*Acore+1.27*fysk*Ays)#Arc未减去钢筋
+    #print(Nallk)
+    GK=rng.normal(loc=1.06*G0,scale=0.07*1.06*G0,size=Size)
+    bgum=6**0.5*detaq[q1]*muq[q1]*Q0/pi
+    ugum=muq[q1]*Q0-0.57721*bgum
+    #print(bgum,ugum)
+    QK=rng.gumbel(loc=ugum,scale=bgum,size=Size)
+    #print(QK)
+    g=Nallk-GK-QK
+    nf=0
+    for ii in range(len(g)):
+        if g[ii]<0:
+            nf=nf+1
+    print(nf)
+    pf=nf/Size
+    ppf=norm.ppf(pf)
+    beta.append(-1*ppf)
+    #print(-1*ppf)
+    #beta.append()
+print(beta)
+filename=r'F:\1岳麓山下\作业成果\可靠度作业\规范可靠度计算数据.xlsx'
+wb=op.load_workbook(filename)
+sh=wb["日本规范"]
+for i in range(1,len(beta)+1):
+    sh.cell(i+4,12,beta[i-1])
+wb.save(filename)
